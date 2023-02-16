@@ -2,17 +2,15 @@ from config import *
 import websocket, json
 from main import buy, sell
 import refresh
-
-def symbols():
-    symbols = []
-    for symbol in SYMBOLS:
-        symbols.append(f'AM.{symbol}')
-
-    return symbols
+import numpy as np
 
 
 def on_open(ws):
     print("opened")
+
+    refresh.portfolio()
+    refresh.trends()
+
     auth_data = {
         "action": "auth", 
         "key": APLACA_API_KEY, 
@@ -37,40 +35,47 @@ def on_message(ws, message):
 
         data = json.loads(message)
 
+        buying_power = portfolio['buying_power'] 
+
         for pnt in data:
             symbol = pnt['S']
             price = pnt['c']
+            if symbol in portfolio:
+                position = int(portfolio[symbol])
+            else:
+                position = 0
     
             if price <= trends[symbol]['lower']:
-                qty = 10
-                if symbol in portfolio:
-                    positions = int(portfolio[symbol])
-                    if positions < 0:
-                        qty = (positions * -1) + qty
-                    else:
-                        qty = 0
+                if position > 0:
+                    qty = 0
+                elif price*10 <= buying_power:
+                    qty = 10
+                else:
+                    qty = np.floor(buying_power/price)
 
                 if qty > 0:
                     try:
                         buy(symbol, qty)
                         refresh.portfolio()
+                        buying_power = buying_power - (qty*price)
                         print(f'buy: {symbol}*{qty} at {price}')
                     except Exception as err:
-                        print(f'sell failure: {symbol}*{qty} at {price}\n{err}')
+                        print(f'buy failure: {symbol}*{qty} at {price}\n{err}')
                 else:
                     print(f"hold: {symbol} at {price}")
 
             elif price >= trends[symbol]['upper']:
-                qty = 0
-                if symbol in portfolio:
-                    positions = int(portfolio[symbol])
-                    if positions > 0:
-                        qty = positions
+                
+                if position > 0: 
+                    qty = position
+                else:
+                    qty = 0
 
                 if qty > 0:
                     try:
                         sell(symbol, qty)
                         refresh.portfolio()
+                        buying_power = buying_power + (qty*price)
                         print(f'sell: {symbol}*{qty} at {price}')
                     except Exception as err:
                         print(f'sell failure: {symbol}*{qty} at {price}\n{err}')
